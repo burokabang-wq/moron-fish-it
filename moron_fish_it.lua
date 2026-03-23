@@ -1,8 +1,16 @@
 -- ====================================================================
---              MORON FISH IT v8.0 - by GasUp ID
+--              MORON FISH IT v8.1 - by GasUp ID
 --       Based on verified working Auto Fish V4.0 method
 --         No Key | No HWID | Free Forever | Undetected
 -- ====================================================================
+
+-- CLEANUP OLD INSTANCES FIRST
+pcall(function()
+    local parent = (gethui and gethui()) or game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+    for _, v in pairs(parent:GetChildren()) do
+        if v:GetAttribute("_mfi") then v:Destroy() end
+    end
+end)
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -11,6 +19,7 @@ local HttpService = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
+local guiParent = (gethui and gethui()) or LocalPlayer:WaitForChild("PlayerGui")
 
 local VirtualUser
 pcall(function() VirtualUser = game:GetService("VirtualUser") end)
@@ -22,81 +31,91 @@ local CONFIG_FOLDER = "MoronFishIt"
 local CONFIG_FILE = CONFIG_FOLDER .. "/config.json"
 
 local Config = {
-    AutoFish = false,
-    AutoSell = false,
-    AutoCatch = false,
-    GPUSaver = false,
-    BlatantMode = false,
-    AutoFavorite = true,
-    FavoriteRarity = "Mythic",
-    FishDelay = 0.9,
-    CatchDelay = 0.2,
-    SellDelay = 30,
-    AntiAFK = true,
-    WalkSpeed = 16,
-    JumpPower = 50,
-    InfJump = false,
-    Fly = false,
-    Noclip = false,
-    AntiDrown = false,
+    AutoFish = false, AutoSell = false, AutoCatch = false,
+    GPUSaver = false, BlatantMode = false, AutoFavorite = true,
+    FavoriteRarity = "Mythic", FishDelay = 0.9, CatchDelay = 0.2,
+    SellDelay = 30, AntiAFK = true, WalkSpeed = 16, JumpPower = 50,
+    InfJump = false, Fly = false, Noclip = false, AntiDrown = false,
 }
-
 local DefaultConfig = {}
 for k, v in pairs(Config) do DefaultConfig[k] = v end
 
 local function ensureFolder()
     if not isfolder or not makefolder then return false end
-    if not isfolder(CONFIG_FOLDER) then pcall(function() makefolder(CONFIG_FOLDER) end) end
+    if not isfolder(CONFIG_FOLDER) then pcall(makefolder, CONFIG_FOLDER) end
     return isfolder(CONFIG_FOLDER)
 end
-
 local function saveConfig()
     if not writefile or not ensureFolder() then return end
-    pcall(function() writefile(CONFIG_FILE, HttpService:JSONEncode(Config)) end)
+    pcall(writefile, CONFIG_FILE, HttpService:JSONEncode(Config))
 end
-
 local function loadConfig()
     if not readfile or not isfile or not isfile(CONFIG_FILE) then return end
     pcall(function()
-        local data = HttpService:JSONDecode(readfile(CONFIG_FILE))
-        for k, v in pairs(data) do if DefaultConfig[k] ~= nil then Config[k] = v end end
+        local d = HttpService:JSONDecode(readfile(CONFIG_FILE))
+        for k, v in pairs(d) do if DefaultConfig[k] ~= nil then Config[k] = v end end
     end)
 end
-
 loadConfig()
 
 -- ====================================================================
---                     NETWORK EVENTS (VERIFIED WORKING)
+--                     NETWORK EVENTS (NON-BLOCKING)
 -- ====================================================================
 local Events = {}
 local eventsLoaded = false
+local eventsStatus = "Loading..."
 
-local function initEvents()
-    local ok = pcall(function()
-        local net = ReplicatedStorage.Packages._Index["sleitnick_net@0.2.0"].net
-        Events.fishing = net:WaitForChild("RE/FishingCompleted", 10)
-        Events.sell = net:WaitForChild("RF/SellAllItems", 10)
-        Events.charge = net:WaitForChild("RF/ChargeFishingRod", 10)
-        Events.minigame = net:WaitForChild("RF/RequestFishingMinigameStarted", 10)
-        Events.cancel = net:WaitForChild("RF/CancelFishingInputs", 10)
-        Events.equip = net:WaitForChild("RE/EquipToolFromHotbar", 10)
-        Events.unequip = net:WaitForChild("RE/UnequipToolFromHotbar", 10)
-        Events.favorite = net:WaitForChild("RE/FavoriteItem", 10)
-        eventsLoaded = true
+-- Load events in background so UI shows immediately
+task.spawn(function()
+    local ok, err = pcall(function()
+        -- Try primary path
+        local net = ReplicatedStorage:WaitForChild("Packages", 5)
+        if not net then error("No Packages") end
+        net = net:WaitForChild("_Index", 5)
+        if not net then error("No _Index") end
+
+        -- Find sleitnick_net folder (version may change)
+        local netFolder
+        for _, child in pairs(net:GetChildren()) do
+            if child.Name:find("sleitnick_net") then
+                netFolder = child
+                break
+            end
+        end
+        if not netFolder then error("No sleitnick_net") end
+        netFolder = netFolder:WaitForChild("net", 5)
+        if not netFolder then error("No net subfolder") end
+
+        Events.fishing = netFolder:WaitForChild("RE/FishingCompleted", 5)
+        Events.sell = netFolder:WaitForChild("RF/SellAllItems", 5)
+        Events.charge = netFolder:WaitForChild("RF/ChargeFishingRod", 5)
+        Events.minigame = netFolder:WaitForChild("RF/RequestFishingMinigameStarted", 5)
+        Events.cancel = netFolder:WaitForChild("RF/CancelFishingInputs", 5)
+        Events.equip = netFolder:WaitForChild("RE/EquipToolFromHotbar", 5)
+        Events.unequip = netFolder:WaitForChild("RE/UnequipToolFromHotbar", 5)
+        Events.favorite = netFolder:WaitForChild("RE/FavoriteItem", 5)
+
+        if Events.fishing and Events.sell and Events.charge and Events.minigame and Events.equip then
+            eventsLoaded = true
+            eventsStatus = "Ready"
+        else
+            eventsStatus = "Partial"
+        end
     end)
-    if not ok then warn("[Moron] Events failed to load") end
-end
+    if not ok then
+        eventsStatus = "Failed: " .. tostring(err)
+        warn("[Moron] Events error: " .. tostring(err))
+    end
+end)
 
-initEvents()
-
--- ====================================================================
---                     MODULES FOR AUTO FAVORITE
--- ====================================================================
+-- Modules for auto favorite (non-blocking)
 local ItemUtility, Replion, PlayerData
-pcall(function()
-    ItemUtility = require(ReplicatedStorage.Shared.ItemUtility)
-    Replion = require(ReplicatedStorage.Packages.Replion)
-    PlayerData = Replion.Client:WaitReplion("Data")
+task.spawn(function()
+    pcall(function()
+        ItemUtility = require(ReplicatedStorage.Shared.ItemUtility)
+        Replion = require(ReplicatedStorage.Packages.Replion)
+        PlayerData = Replion.Client:WaitReplion("Data")
+    end)
 end)
 
 local RarityTiers = { Common = 1, Uncommon = 2, Rare = 3, Epic = 4, Legendary = 5, Mythic = 6, Secret = 7 }
@@ -105,20 +124,20 @@ local RarityTiers = { Common = 1, Uncommon = 2, Rare = 3, Epic = 4, Legendary = 
 --                     TELEPORT LOCATIONS
 -- ====================================================================
 local LOCATIONS = {
-    ["Spawn"] = CFrame.new(45.27, 252.56, 2987.10),
-    ["Sisyphus Statue"] = CFrame.new(-3728.21, -135.07, -1012.12),
-    ["Coral Reefs"] = CFrame.new(-3114.78, 1.32, 2237.52),
-    ["Esoteric Depths"] = CFrame.new(3248.37, -1301.53, 1403.82),
-    ["Crater Island"] = CFrame.new(1016.49, 20.09, 5069.27),
-    ["Lost Isle"] = CFrame.new(-3618.15, 240.83, -1317.45),
-    ["Weather Machine"] = CFrame.new(-1488.51, 83.17, 1876.30),
-    ["Tropical Grove"] = CFrame.new(-2095.34, 197.19, 3718.08),
-    ["Mount Hallow"] = CFrame.new(2136.62, 78.91, 3272.50),
-    ["Treasure Room"] = CFrame.new(-3606.34, -266.57, -1580.97),
-    ["Kohana"] = CFrame.new(-663.90, 3.04, 718.79),
-    ["Underground Cellar"] = CFrame.new(2109.52, -94.18, -708.60),
-    ["Ancient Jungle"] = CFrame.new(1831.71, 6.62, -299.27),
-    ["Sacred Temple"] = CFrame.new(1466.92, -21.87, -622.83),
+    {"Spawn", CFrame.new(45.27, 252.56, 2987.10)},
+    {"Sisyphus Statue", CFrame.new(-3728.21, -135.07, -1012.12)},
+    {"Coral Reefs", CFrame.new(-3114.78, 1.32, 2237.52)},
+    {"Esoteric Depths", CFrame.new(3248.37, -1301.53, 1403.82)},
+    {"Crater Island", CFrame.new(1016.49, 20.09, 5069.27)},
+    {"Lost Isle", CFrame.new(-3618.15, 240.83, -1317.45)},
+    {"Weather Machine", CFrame.new(-1488.51, 83.17, 1876.30)},
+    {"Tropical Grove", CFrame.new(-2095.34, 197.19, 3718.08)},
+    {"Mount Hallow", CFrame.new(2136.62, 78.91, 3272.50)},
+    {"Treasure Room", CFrame.new(-3606.34, -266.57, -1580.97)},
+    {"Kohana", CFrame.new(-663.90, 3.04, 718.79)},
+    {"Underground Cellar", CFrame.new(2109.52, -94.18, -708.60)},
+    {"Ancient Jungle", CFrame.new(1831.71, 6.62, -299.27)},
+    {"Sacred Temple", CFrame.new(1466.92, -21.87, -622.83)},
 }
 
 -- ====================================================================
@@ -211,9 +230,7 @@ local function autoFavoriteByRarity()
     end)
 end
 
-local function teleportTo(name)
-    local cf = LOCATIONS[name]
-    if not cf then return end
+local function teleportTo(cf)
     pcall(function()
         local char = LocalPlayer.Character
         if char and char:FindFirstChild("HumanoidRootPart") then
@@ -222,6 +239,7 @@ local function teleportTo(name)
     end)
 end
 
+-- GPU Saver
 local gpuActive = false
 local gpuScreen = nil
 local function enableGPU()
@@ -248,9 +266,8 @@ local function enableGPU()
     l.TextColor3 = Color3.fromRGB(0, 200, 130)
     l.TextSize = 20
     l.Font = Enum.Font.GothamBold
-    gpuScreen.Parent = (gethui and gethui()) or LocalPlayer.PlayerGui
+    gpuScreen.Parent = guiParent
 end
-
 local function disableGPU()
     if not gpuActive then return end
     gpuActive = false
@@ -276,8 +293,561 @@ if VirtualUser then
 end
 
 -- ====================================================================
+--                     SPLASH SCREEN (quick, non-blocking feel)
+-- ====================================================================
+local splash = Instance.new("ScreenGui")
+splash.ResetOnSpawn = false
+splash:SetAttribute("_mfi", true)
+splash.Parent = guiParent
+
+local sf = Instance.new("Frame", splash)
+sf.Size = UDim2.new(0, 200, 0, 65)
+sf.Position = UDim2.new(0.5, -100, 0.5, -32)
+sf.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
+sf.BorderSizePixel = 0
+Instance.new("UICorner", sf).CornerRadius = UDim.new(0, 10)
+
+local st = Instance.new("TextLabel", sf)
+st.Size = UDim2.new(1, 0, 0, 30)
+st.Position = UDim2.new(0, 0, 0, 8)
+st.BackgroundTransparency = 1
+st.Text = "GasUp ID"
+st.TextColor3 = Color3.fromRGB(0, 200, 130)
+st.TextSize = 20
+st.Font = Enum.Font.GothamBold
+
+local ss = Instance.new("TextLabel", sf)
+ss.Size = UDim2.new(1, 0, 0, 18)
+ss.Position = UDim2.new(0, 0, 0, 38)
+ss.BackgroundTransparency = 1
+ss.Text = "Moron Fish It v8.1"
+ss.TextColor3 = Color3.fromRGB(160, 160, 170)
+ss.TextSize = 12
+ss.Font = Enum.Font.Gotham
+
+task.wait(1.5)
+splash:Destroy()
+
+-- ====================================================================
+--                     MAIN UI - ATOMIC HUB STYLE
+-- ====================================================================
+local screenGui = Instance.new("ScreenGui")
+screenGui.ResetOnSpawn = false
+screenGui:SetAttribute("_mfi", true)
+screenGui.Parent = guiParent
+
+local main = Instance.new("Frame", screenGui)
+main.Size = UDim2.new(0, 440, 0, 310)
+main.Position = UDim2.new(0.5, -220, 0.5, -155)
+main.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
+main.BorderSizePixel = 0
+main.ClipsDescendants = true
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 10)
+
+-- Drop shadow effect
+local shadow = Instance.new("ImageLabel", main)
+shadow.Size = UDim2.new(1, 30, 1, 30)
+shadow.Position = UDim2.new(0, -15, 0, -15)
+shadow.BackgroundTransparency = 1
+shadow.Image = "rbxassetid://6015897843"
+shadow.ImageColor3 = Color3.new(0, 0, 0)
+shadow.ImageTransparency = 0.5
+shadow.ScaleType = Enum.ScaleType.Slice
+shadow.SliceCenter = Rect.new(49, 49, 450, 450)
+shadow.ZIndex = 0
+
+-- Top bar
+local topBar = Instance.new("Frame", main)
+topBar.Size = UDim2.new(1, 0, 0, 34)
+topBar.BackgroundColor3 = Color3.fromRGB(28, 28, 35)
+topBar.BorderSizePixel = 0
+topBar.ZIndex = 2
+Instance.new("UICorner", topBar).CornerRadius = UDim.new(0, 10)
+local tbFix = Instance.new("Frame", topBar)
+tbFix.Size = UDim2.new(1, 0, 0, 12)
+tbFix.Position = UDim2.new(0, 0, 1, -12)
+tbFix.BackgroundColor3 = Color3.fromRGB(28, 28, 35)
+tbFix.BorderSizePixel = 0
+tbFix.ZIndex = 2
+
+local titleLbl = Instance.new("TextLabel", topBar)
+titleLbl.Size = UDim2.new(0, 140, 1, 0)
+titleLbl.Position = UDim2.new(0, 12, 0, 0)
+titleLbl.BackgroundTransparency = 1
+titleLbl.Text = "Moron Fish It"
+titleLbl.TextColor3 = Color3.fromRGB(0, 200, 130)
+titleLbl.TextSize = 14
+titleLbl.Font = Enum.Font.GothamBold
+titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+titleLbl.ZIndex = 3
+
+local verLbl = Instance.new("TextLabel", topBar)
+verLbl.Size = UDim2.new(0, 40, 1, 0)
+verLbl.Position = UDim2.new(0, 148, 0, 0)
+verLbl.BackgroundTransparency = 1
+verLbl.Text = "v8.1"
+verLbl.TextColor3 = Color3.fromRGB(80, 80, 90)
+verLbl.TextSize = 11
+verLbl.Font = Enum.Font.Gotham
+verLbl.TextXAlignment = Enum.TextXAlignment.Left
+verLbl.ZIndex = 3
+
+-- Status indicator
+local statusLbl = Instance.new("TextLabel", topBar)
+statusLbl.Size = UDim2.new(0, 80, 1, 0)
+statusLbl.Position = UDim2.new(1, -120, 0, 0)
+statusLbl.BackgroundTransparency = 1
+statusLbl.Text = eventsStatus
+statusLbl.TextColor3 = Color3.fromRGB(80, 80, 90)
+statusLbl.TextSize = 10
+statusLbl.Font = Enum.Font.Gotham
+statusLbl.TextXAlignment = Enum.TextXAlignment.Right
+statusLbl.ZIndex = 3
+
+-- Update status label periodically
+task.spawn(function()
+    while statusLbl and statusLbl.Parent do
+        pcall(function() statusLbl.Text = eventsStatus end)
+        task.wait(1)
+    end
+end)
+
+local closeBtn = Instance.new("TextButton", topBar)
+closeBtn.Size = UDim2.new(0, 34, 0, 34)
+closeBtn.Position = UDim2.new(1, -34, 0, 0)
+closeBtn.BackgroundTransparency = 1
+closeBtn.Text = "x"
+closeBtn.TextColor3 = Color3.fromRGB(120, 120, 130)
+closeBtn.TextSize = 16
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.ZIndex = 3
+
+-- Draggable
+local dragging, dragStart, startPos
+topBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = main.Position
+    end
+end)
+topBar.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local d = input.Position - dragStart
+        main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+    end
+end)
+
+-- Sidebar
+local sidebar = Instance.new("Frame", main)
+sidebar.Size = UDim2.new(0, 120, 1, -34)
+sidebar.Position = UDim2.new(0, 0, 0, 34)
+sidebar.BackgroundColor3 = Color3.fromRGB(18, 18, 23)
+sidebar.BorderSizePixel = 0
+
+local sepLine = Instance.new("Frame", sidebar)
+sepLine.Size = UDim2.new(0, 1, 1, 0)
+sepLine.Position = UDim2.new(1, 0, 0, 0)
+sepLine.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+sepLine.BorderSizePixel = 0
+
+-- Content area
+local contentArea = Instance.new("Frame", main)
+contentArea.Size = UDim2.new(1, -121, 1, -34)
+contentArea.Position = UDim2.new(0, 121, 0, 34)
+contentArea.BackgroundTransparency = 1
+contentArea.ClipsDescendants = true
+
+-- ====== TABS ======
+local tabNames = {"Fishing", "Selling", "Teleport", "Movement", "Utility", "Settings"}
+local currentTab = "Fishing"
+local tabBtns = {}
+local pages = {}
+
+local sLayout = Instance.new("UIListLayout", sidebar)
+sLayout.SortOrder = Enum.SortOrder.LayoutOrder
+sLayout.Padding = UDim.new(0, 1)
+
+local sPad = Instance.new("UIPadding", sidebar)
+sPad.PaddingTop = UDim.new(0, 4)
+
+for i, name in ipairs(tabNames) do
+    local btn = Instance.new("TextButton", sidebar)
+    btn.Size = UDim2.new(1, 0, 0, 32)
+    btn.BackgroundTransparency = 1
+    btn.BorderSizePixel = 0
+    btn.Text = "   " .. name
+    btn.TextColor3 = Color3.fromRGB(140, 140, 150)
+    btn.TextSize = 12
+    btn.Font = Enum.Font.Gotham
+    btn.TextXAlignment = Enum.TextXAlignment.Left
+    btn.LayoutOrder = i
+
+    local ind = Instance.new("Frame", btn)
+    ind.Size = UDim2.new(0, 3, 0, 18)
+    ind.Position = UDim2.new(0, 0, 0.5, -9)
+    ind.BackgroundColor3 = Color3.fromRGB(0, 200, 130)
+    ind.BorderSizePixel = 0
+    ind.Visible = (name == currentTab)
+    Instance.new("UICorner", ind).CornerRadius = UDim.new(0, 2)
+
+    tabBtns[name] = {btn = btn, ind = ind}
+end
+
+-- ====== CREATE PAGES ======
+for _, name in ipairs(tabNames) do
+    local scroll = Instance.new("ScrollingFrame", contentArea)
+    scroll.Size = UDim2.new(1, -6, 1, -6)
+    scroll.Position = UDim2.new(0, 3, 0, 3)
+    scroll.BackgroundTransparency = 1
+    scroll.BorderSizePixel = 0
+    scroll.ScrollBarThickness = 3
+    scroll.ScrollBarImageColor3 = Color3.fromRGB(60, 60, 70)
+    scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    scroll.Visible = (name == currentTab)
+
+    local lay = Instance.new("UIListLayout", scroll)
+    lay.SortOrder = Enum.SortOrder.LayoutOrder
+    lay.Padding = UDim.new(0, 3)
+
+    local pad = Instance.new("UIPadding", scroll)
+    pad.PaddingLeft = UDim.new(0, 6)
+    pad.PaddingRight = UDim.new(0, 6)
+    pad.PaddingTop = UDim.new(0, 4)
+
+    pages[name] = scroll
+end
+
+-- ====== UI COMPONENT BUILDERS ======
+local function mkSection(page, text, ord)
+    local l = Instance.new("TextLabel", page)
+    l.Size = UDim2.new(1, 0, 0, 20)
+    l.BackgroundTransparency = 1
+    l.Text = text
+    l.TextColor3 = Color3.fromRGB(90, 90, 100)
+    l.TextSize = 10
+    l.Font = Enum.Font.GothamBold
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.LayoutOrder = ord
+end
+
+local function mkToggle(page, title, desc, key, ord, cb)
+    local f = Instance.new("Frame", page)
+    f.Size = UDim2.new(1, 0, 0, desc and 38 or 30)
+    f.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
+    f.BorderSizePixel = 0
+    f.LayoutOrder = ord
+    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 6)
+
+    local t = Instance.new("TextLabel", f)
+    t.Size = UDim2.new(1, -60, 0, 18)
+    t.Position = UDim2.new(0, 10, 0, desc and 2 or 6)
+    t.BackgroundTransparency = 1
+    t.Text = title
+    t.TextColor3 = Color3.fromRGB(210, 210, 220)
+    t.TextSize = 12
+    t.Font = Enum.Font.GothamMedium
+    t.TextXAlignment = Enum.TextXAlignment.Left
+
+    if desc then
+        local d = Instance.new("TextLabel", f)
+        d.Size = UDim2.new(1, -60, 0, 13)
+        d.Position = UDim2.new(0, 10, 0, 20)
+        d.BackgroundTransparency = 1
+        d.Text = desc
+        d.TextColor3 = Color3.fromRGB(80, 80, 90)
+        d.TextSize = 9
+        d.Font = Enum.Font.Gotham
+        d.TextXAlignment = Enum.TextXAlignment.Left
+    end
+
+    local bg = Instance.new("Frame", f)
+    bg.Size = UDim2.new(0, 36, 0, 18)
+    bg.Position = UDim2.new(1, -46, 0.5, -9)
+    bg.BackgroundColor3 = Config[key] and Color3.fromRGB(0, 190, 120) or Color3.fromRGB(50, 50, 60)
+    bg.BorderSizePixel = 0
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(1, 0)
+
+    local knob = Instance.new("Frame", bg)
+    knob.Size = UDim2.new(0, 14, 0, 14)
+    knob.Position = Config[key] and UDim2.new(1, -16, 0.5, -7) or UDim2.new(0, 2, 0.5, -7)
+    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    knob.BorderSizePixel = 0
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+    local btn = Instance.new("TextButton", f)
+    btn.Size = UDim2.new(1, 0, 1, 0)
+    btn.BackgroundTransparency = 1
+    btn.Text = ""
+    btn.ZIndex = 2
+
+    btn.MouseButton1Click:Connect(function()
+        Config[key] = not Config[key]
+        local on = Config[key]
+        local tw = TweenInfo.new(0.15, Enum.EasingStyle.Quad)
+        TweenService:Create(bg, tw, {BackgroundColor3 = on and Color3.fromRGB(0, 190, 120) or Color3.fromRGB(50, 50, 60)}):Play()
+        TweenService:Create(knob, tw, {Position = on and UDim2.new(1, -16, 0.5, -7) or UDim2.new(0, 2, 0.5, -7)}):Play()
+        saveConfig()
+        if cb then cb(on) end
+    end)
+end
+
+local function mkButton(page, title, ord, cb)
+    local b = Instance.new("TextButton", page)
+    b.Size = UDim2.new(1, 0, 0, 30)
+    b.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
+    b.BorderSizePixel = 0
+    b.Text = title
+    b.TextColor3 = Color3.fromRGB(190, 190, 200)
+    b.TextSize = 12
+    b.Font = Enum.Font.GothamMedium
+    b.LayoutOrder = ord
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    b.MouseButton1Click:Connect(function() if cb then cb() end end)
+end
+
+local function mkSlider(page, title, key, mn, mx, step, ord)
+    local f = Instance.new("Frame", page)
+    f.Size = UDim2.new(1, 0, 0, 44)
+    f.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
+    f.BorderSizePixel = 0
+    f.LayoutOrder = ord
+    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 6)
+
+    local t = Instance.new("TextLabel", f)
+    t.Size = UDim2.new(1, -55, 0, 18)
+    t.Position = UDim2.new(0, 10, 0, 3)
+    t.BackgroundTransparency = 1
+    t.Text = title
+    t.TextColor3 = Color3.fromRGB(210, 210, 220)
+    t.TextSize = 12
+    t.Font = Enum.Font.GothamMedium
+    t.TextXAlignment = Enum.TextXAlignment.Left
+
+    local vl = Instance.new("TextLabel", f)
+    vl.Size = UDim2.new(0, 45, 0, 18)
+    vl.Position = UDim2.new(1, -52, 0, 3)
+    vl.BackgroundTransparency = 1
+    vl.Text = tostring(Config[key])
+    vl.TextColor3 = Color3.fromRGB(0, 190, 120)
+    vl.TextSize = 11
+    vl.Font = Enum.Font.GothamBold
+    vl.TextXAlignment = Enum.TextXAlignment.Right
+
+    local sbg = Instance.new("Frame", f)
+    sbg.Size = UDim2.new(1, -20, 0, 4)
+    sbg.Position = UDim2.new(0, 10, 0, 30)
+    sbg.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+    sbg.BorderSizePixel = 0
+    Instance.new("UICorner", sbg).CornerRadius = UDim.new(1, 0)
+
+    local pct = math.clamp((Config[key] - mn) / (mx - mn), 0, 1)
+    local fill = Instance.new("Frame", sbg)
+    fill.Size = UDim2.new(pct, 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(0, 190, 120)
+    fill.BorderSizePixel = 0
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+
+    local sBtn = Instance.new("TextButton", f)
+    sBtn.Size = UDim2.new(1, -16, 0, 16)
+    sBtn.Position = UDim2.new(0, 8, 0, 24)
+    sBtn.BackgroundTransparency = 1
+    sBtn.Text = ""
+    sBtn.ZIndex = 2
+
+    local sliding = false
+    local function upd(pos)
+        local abs = sbg.AbsolutePosition
+        local sz = sbg.AbsoluteSize
+        local rel = math.clamp((pos.X - abs.X) / sz.X, 0, 1)
+        local val = mn + (mx - mn) * rel
+        val = math.floor(val / step + 0.5) * step
+        val = math.clamp(val, mn, mx)
+        if step < 1 then val = math.floor(val * 10 + 0.5) / 10 end
+        Config[key] = val
+        vl.Text = tostring(val)
+        fill.Size = UDim2.new(math.clamp((val - mn) / (mx - mn), 0, 1), 0, 1, 0)
+        saveConfig()
+    end
+
+    sBtn.InputBegan:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
+            sliding = true
+            upd(inp.Position)
+        end
+    end)
+    sBtn.InputEnded:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then sliding = false end
+    end)
+    UserInputService.InputChanged:Connect(function(inp)
+        if sliding and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then
+            upd(inp.Position)
+        end
+    end)
+end
+
+-- ====== POPULATE PAGES ======
+
+-- FISHING PAGE
+local fp = pages["Fishing"]
+mkSection(fp, "FISHING MODE", 1)
+mkToggle(fp, "Auto Fish", "Auto cast and reel fish", "AutoFish", 2, function(on)
+    fishingActive = on
+    if on then task.spawn(fishingLoop) end
+end)
+mkToggle(fp, "Blatant Mode", "2x parallel casts, faster", "BlatantMode", 3)
+mkToggle(fp, "Auto Catch", "Extra reel spam in background", "AutoCatch", 4)
+mkSection(fp, "TIMING", 5)
+mkSlider(fp, "Fish Delay", "FishDelay", 0.1, 5, 0.1, 6)
+mkSlider(fp, "Catch Delay", "CatchDelay", 0.1, 3, 0.1, 7)
+
+-- SELLING PAGE
+local sp = pages["Selling"]
+mkSection(sp, "AUTO SELL", 1)
+mkToggle(sp, "Auto Sell", "Sell non-favorited fish", "AutoSell", 2)
+mkSlider(sp, "Sell Interval (sec)", "SellDelay", 10, 300, 5, 3)
+mkButton(sp, "Sell All Now", 4, simpleSell)
+mkSection(sp, "FAVORITES", 5)
+mkToggle(sp, "Auto Favorite", "Auto favorite rare fish", "AutoFavorite", 6)
+mkButton(sp, "Favorite All Now", 7, autoFavoriteByRarity)
+
+-- TELEPORT PAGE
+local tp = pages["Teleport"]
+mkSection(tp, "ISLANDS", 1)
+for i, loc in ipairs(LOCATIONS) do
+    mkButton(tp, loc[1], i + 1, function() teleportTo(loc[2]) end)
+end
+
+-- MOVEMENT PAGE
+local mp = pages["Movement"]
+mkSection(mp, "CHARACTER", 1)
+mkSlider(mp, "Walk Speed", "WalkSpeed", 16, 200, 1, 2)
+mkSlider(mp, "Jump Power", "JumpPower", 50, 300, 5, 3)
+mkToggle(mp, "Infinite Jump", "Jump in mid-air", "InfJump", 4)
+mkToggle(mp, "Fly", "WASD + Space/Shift to fly", "Fly", 5)
+mkToggle(mp, "Noclip", "Walk through walls", "Noclip", 6)
+mkToggle(mp, "Anti Drown", "Auto resurface when underwater", "AntiDrown", 7)
+
+-- UTILITY PAGE
+local up = pages["Utility"]
+mkSection(up, "PERFORMANCE", 1)
+mkToggle(up, "GPU Saver", "Low graphics for AFK farming", "GPUSaver", 2, function(on)
+    if on then enableGPU() else disableGPU() end
+end)
+mkSection(up, "SERVER", 3)
+mkButton(up, "Server Hop", 4, function()
+    pcall(function()
+        local url = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
+        local data = HttpService:JSONDecode(game:HttpGet(url))
+        for _, s in pairs(data.data) do
+            if s.playing < s.maxPlayers and s.id ~= game.JobId then
+                game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, s.id)
+                return
+            end
+        end
+    end)
+end)
+mkButton(up, "Rejoin Server", 5, function()
+    pcall(function() game:GetService("TeleportService"):Teleport(game.PlaceId) end)
+end)
+
+-- SETTINGS PAGE
+local stp = pages["Settings"]
+mkSection(stp, "CONFIG", 1)
+mkButton(stp, "Save Config", 2, saveConfig)
+mkButton(stp, "Load Config", 3, loadConfig)
+mkButton(stp, "Reset to Default", 4, function()
+    for k, v in pairs(DefaultConfig) do Config[k] = v end
+    saveConfig()
+end)
+mkSection(stp, "INFO", 5)
+local infoLbl = Instance.new("TextLabel", stp)
+infoLbl.Size = UDim2.new(1, 0, 0, 50)
+infoLbl.BackgroundTransparency = 1
+infoLbl.Text = "Moron Fish It v8.1\nby GasUp ID\nNo Key | No HWID | Free"
+infoLbl.TextColor3 = Color3.fromRGB(90, 90, 100)
+infoLbl.TextSize = 10
+infoLbl.Font = Enum.Font.Gotham
+infoLbl.TextXAlignment = Enum.TextXAlignment.Left
+infoLbl.LayoutOrder = 6
+
+-- ====== TAB SWITCHING ======
+local function switchTab(name)
+    currentTab = name
+    for tn, data in pairs(tabBtns) do
+        local active = (tn == name)
+        data.ind.Visible = active
+        data.btn.TextColor3 = active and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(140, 140, 150)
+        data.btn.Font = active and Enum.Font.GothamBold or Enum.Font.Gotham
+    end
+    for pn, pg in pairs(pages) do pg.Visible = (pn == name) end
+end
+
+for tn, data in pairs(tabBtns) do
+    data.btn.MouseButton1Click:Connect(function() switchTab(tn) end)
+end
+switchTab("Fishing")
+
+-- ====== FLOATING BUTTON ======
+local floatBtn = Instance.new("TextButton", screenGui)
+floatBtn.Size = UDim2.new(0, 38, 0, 38)
+floatBtn.Position = UDim2.new(0, 10, 0.5, -19)
+floatBtn.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
+floatBtn.BorderSizePixel = 0
+floatBtn.Text = "M"
+floatBtn.TextColor3 = Color3.fromRGB(0, 200, 130)
+floatBtn.TextSize = 16
+floatBtn.Font = Enum.Font.GothamBold
+floatBtn.Visible = false
+Instance.new("UICorner", floatBtn).CornerRadius = UDim.new(0, 8)
+
+floatBtn.MouseButton1Click:Connect(function()
+    main.Visible = true
+    floatBtn.Visible = false
+end)
+
+-- Make float button draggable
+local fbDrag, fbDS, fbSP
+floatBtn.InputBegan:Connect(function(inp)
+    if inp.UserInputType == Enum.UserInputType.Touch then
+        fbDrag = true
+        fbDS = inp.Position
+        fbSP = floatBtn.Position
+    end
+end)
+UserInputService.InputChanged:Connect(function(inp)
+    if fbDrag and inp.UserInputType == Enum.UserInputType.Touch then
+        local d = inp.Position - fbDS
+        floatBtn.Position = UDim2.new(fbSP.X.Scale, fbSP.X.Offset + d.X, fbSP.Y.Scale, fbSP.Y.Offset + d.Y)
+    end
+end)
+floatBtn.InputEnded:Connect(function(inp)
+    if inp.UserInputType == Enum.UserInputType.Touch then fbDrag = false end
+end)
+
+closeBtn.MouseButton1Click:Connect(function()
+    main.Visible = false
+    floatBtn.Visible = true
+end)
+
+UserInputService.InputBegan:Connect(function(inp, gpe)
+    if gpe then return end
+    if inp.KeyCode == Enum.KeyCode.RightShift then
+        main.Visible = not main.Visible
+        floatBtn.Visible = not main.Visible
+    end
+end)
+
+-- ====================================================================
 --                     BACKGROUND LOOPS
 -- ====================================================================
+-- Auto Catch loop
 task.spawn(function()
     while true do
         if Config.AutoCatch and not isFishing and eventsLoaded then
@@ -287,6 +857,7 @@ task.spawn(function()
     end
 end)
 
+-- Auto Sell loop
 task.spawn(function()
     while true do
         task.wait(Config.SellDelay)
@@ -294,6 +865,7 @@ task.spawn(function()
     end
 end)
 
+-- Auto Favorite loop
 task.spawn(function()
     while true do
         task.wait(10)
@@ -301,6 +873,7 @@ task.spawn(function()
     end
 end)
 
+-- Movement loop
 task.spawn(function()
     while true do
         pcall(function()
@@ -325,6 +898,7 @@ task.spawn(function()
     end
 end)
 
+-- Infinite Jump
 UserInputService.JumpRequest:Connect(function()
     if Config.InfJump then
         pcall(function()
@@ -334,6 +908,7 @@ UserInputService.JumpRequest:Connect(function()
     end
 end)
 
+-- Fly
 local flyBV = nil
 task.spawn(function()
     while true do
@@ -363,538 +938,6 @@ task.spawn(function()
     end
 end)
 
--- ====================================================================
---                     CLEANUP OLD UI
--- ====================================================================
-local guiParent = (gethui and gethui()) or LocalPlayer:WaitForChild("PlayerGui")
-for _, v in pairs(guiParent:GetChildren()) do
-    if v:GetAttribute("_mfi") then v:Destroy() end
-end
-
--- ====================================================================
---                     SPLASH SCREEN
--- ====================================================================
-local splash = Instance.new("ScreenGui")
-splash.ResetOnSpawn = false
-splash:SetAttribute("_mfi", true)
-splash.Parent = guiParent
-
-local sf = Instance.new("Frame", splash)
-sf.Size = UDim2.new(0, 200, 0, 65)
-sf.Position = UDim2.new(0.5, -100, 0.5, -32)
-sf.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
-sf.BorderSizePixel = 0
-sf.BackgroundTransparency = 1
-Instance.new("UICorner", sf).CornerRadius = UDim.new(0, 10)
-
-local st = Instance.new("TextLabel", sf)
-st.Size = UDim2.new(1, 0, 0, 30)
-st.Position = UDim2.new(0, 0, 0, 8)
-st.BackgroundTransparency = 1
-st.Text = "GasUp ID"
-st.TextColor3 = Color3.fromRGB(0, 200, 130)
-st.TextSize = 20
-st.Font = Enum.Font.GothamBold
-st.TextTransparency = 1
-
-local ss = Instance.new("TextLabel", sf)
-ss.Size = UDim2.new(1, 0, 0, 18)
-ss.Position = UDim2.new(0, 0, 0, 38)
-ss.BackgroundTransparency = 1
-ss.Text = "Moron Fish It v8.0"
-ss.TextColor3 = Color3.fromRGB(160, 160, 170)
-ss.TextSize = 12
-ss.Font = Enum.Font.Gotham
-ss.TextTransparency = 1
-
-local ti = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-TweenService:Create(sf, ti, {BackgroundTransparency = 0}):Play()
-TweenService:Create(st, ti, {TextTransparency = 0}):Play()
-TweenService:Create(ss, ti, {TextTransparency = 0}):Play()
-task.wait(2)
-TweenService:Create(sf, ti, {BackgroundTransparency = 1}):Play()
-TweenService:Create(st, ti, {TextTransparency = 1}):Play()
-TweenService:Create(ss, ti, {TextTransparency = 1}):Play()
-task.wait(0.5)
-splash:Destroy()
-
--- ====================================================================
---                     MAIN UI - ATOMIC HUB STYLE
--- ====================================================================
-local screenGui = Instance.new("ScreenGui")
-screenGui.ResetOnSpawn = false
-screenGui:SetAttribute("_mfi", true)
-screenGui.Parent = guiParent
-
-local main = Instance.new("Frame", screenGui)
-main.Size = UDim2.new(0, 460, 0, 320)
-main.Position = UDim2.new(0.5, -230, 0.5, -160)
-main.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
-main.BorderSizePixel = 0
-main.ClipsDescendants = true
-Instance.new("UICorner", main).CornerRadius = UDim.new(0, 10)
-
--- Top bar
-local topBar = Instance.new("Frame", main)
-topBar.Size = UDim2.new(1, 0, 0, 36)
-topBar.BackgroundColor3 = Color3.fromRGB(28, 28, 35)
-topBar.BorderSizePixel = 0
-Instance.new("UICorner", topBar).CornerRadius = UDim.new(0, 10)
-local tbFix = Instance.new("Frame", topBar)
-tbFix.Size = UDim2.new(1, 0, 0, 12)
-tbFix.Position = UDim2.new(0, 0, 1, -12)
-tbFix.BackgroundColor3 = Color3.fromRGB(28, 28, 35)
-tbFix.BorderSizePixel = 0
-
-local titleLbl = Instance.new("TextLabel", topBar)
-titleLbl.Size = UDim2.new(0, 130, 1, 0)
-titleLbl.Position = UDim2.new(0, 12, 0, 0)
-titleLbl.BackgroundTransparency = 1
-titleLbl.Text = "Moron Fish It"
-titleLbl.TextColor3 = Color3.fromRGB(0, 200, 130)
-titleLbl.TextSize = 14
-titleLbl.Font = Enum.Font.GothamBold
-titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-
-local verLbl = Instance.new("TextLabel", topBar)
-verLbl.Size = UDim2.new(0, 40, 1, 0)
-verLbl.Position = UDim2.new(0, 138, 0, 0)
-verLbl.BackgroundTransparency = 1
-verLbl.Text = "v8.0"
-verLbl.TextColor3 = Color3.fromRGB(80, 80, 90)
-verLbl.TextSize = 11
-verLbl.Font = Enum.Font.Gotham
-verLbl.TextXAlignment = Enum.TextXAlignment.Left
-
-local closeBtn = Instance.new("TextButton", topBar)
-closeBtn.Size = UDim2.new(0, 36, 0, 36)
-closeBtn.Position = UDim2.new(1, -36, 0, 0)
-closeBtn.BackgroundTransparency = 1
-closeBtn.Text = "x"
-closeBtn.TextColor3 = Color3.fromRGB(120, 120, 130)
-closeBtn.TextSize = 16
-closeBtn.Font = Enum.Font.GothamBold
-
--- Draggable
-local dragging, dragStart, startPos
-topBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = main.Position
-    end
-end)
-topBar.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = false
-    end
-end)
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local d = input.Position - dragStart
-        main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
-    end
-end)
-
--- Sidebar
-local sidebar = Instance.new("Frame", main)
-sidebar.Size = UDim2.new(0, 130, 1, -36)
-sidebar.Position = UDim2.new(0, 0, 0, 36)
-sidebar.BackgroundColor3 = Color3.fromRGB(18, 18, 23)
-sidebar.BorderSizePixel = 0
-
-local sepLine = Instance.new("Frame", sidebar)
-sepLine.Size = UDim2.new(0, 1, 1, 0)
-sepLine.Position = UDim2.new(1, 0, 0, 0)
-sepLine.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-sepLine.BorderSizePixel = 0
-
--- Content area
-local contentArea = Instance.new("Frame", main)
-contentArea.Size = UDim2.new(1, -130, 1, -36)
-contentArea.Position = UDim2.new(0, 130, 0, 36)
-contentArea.BackgroundTransparency = 1
-contentArea.ClipsDescendants = true
-
--- ====== TABS ======
-local tabNames = {"Fishing", "Selling", "Teleport", "Movement", "Utility", "Settings"}
-local currentTab = "Fishing"
-local tabBtns = {}
-local pages = {}
-
-local sLayout = Instance.new("UIListLayout", sidebar)
-sLayout.SortOrder = Enum.SortOrder.LayoutOrder
-sLayout.Padding = UDim.new(0, 2)
-
-for i, name in ipairs(tabNames) do
-    local btn = Instance.new("TextButton", sidebar)
-    btn.Size = UDim2.new(1, 0, 0, 34)
-    btn.BackgroundTransparency = 1
-    btn.BorderSizePixel = 0
-    btn.Text = "  " .. name
-    btn.TextColor3 = Color3.fromRGB(160, 160, 170)
-    btn.TextSize = 13
-    btn.Font = Enum.Font.Gotham
-    btn.TextXAlignment = Enum.TextXAlignment.Left
-    btn.LayoutOrder = i
-
-    local ind = Instance.new("Frame", btn)
-    ind.Size = UDim2.new(0, 3, 0, 20)
-    ind.Position = UDim2.new(0, 0, 0.5, -10)
-    ind.BackgroundColor3 = Color3.fromRGB(0, 200, 130)
-    ind.BorderSizePixel = 0
-    ind.Visible = (name == currentTab)
-    Instance.new("UICorner", ind).CornerRadius = UDim.new(0, 2)
-
-    tabBtns[name] = {btn = btn, ind = ind}
-end
-
--- ====== CREATE PAGES ======
-for _, name in ipairs(tabNames) do
-    local scroll = Instance.new("ScrollingFrame", contentArea)
-    scroll.Size = UDim2.new(1, -10, 1, -10)
-    scroll.Position = UDim2.new(0, 5, 0, 5)
-    scroll.BackgroundTransparency = 1
-    scroll.BorderSizePixel = 0
-    scroll.ScrollBarThickness = 3
-    scroll.ScrollBarImageColor3 = Color3.fromRGB(60, 60, 70)
-    scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-    scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    scroll.Visible = (name == currentTab)
-
-    local lay = Instance.new("UIListLayout", scroll)
-    lay.SortOrder = Enum.SortOrder.LayoutOrder
-    lay.Padding = UDim.new(0, 4)
-
-    local pad = Instance.new("UIPadding", scroll)
-    pad.PaddingLeft = UDim.new(0, 8)
-    pad.PaddingRight = UDim.new(0, 8)
-    pad.PaddingTop = UDim.new(0, 5)
-
-    pages[name] = scroll
-end
-
--- ====== UI COMPONENT BUILDERS ======
-local function mkSection(page, text, ord)
-    local l = Instance.new("TextLabel", page)
-    l.Size = UDim2.new(1, 0, 0, 22)
-    l.BackgroundTransparency = 1
-    l.Text = text
-    l.TextColor3 = Color3.fromRGB(100, 100, 110)
-    l.TextSize = 11
-    l.Font = Enum.Font.GothamBold
-    l.TextXAlignment = Enum.TextXAlignment.Left
-    l.LayoutOrder = ord
-end
-
-local function mkToggle(page, title, desc, key, ord, cb)
-    local f = Instance.new("Frame", page)
-    f.Size = UDim2.new(1, 0, 0, desc and 40 or 34)
-    f.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
-    f.BorderSizePixel = 0
-    f.LayoutOrder = ord
-    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
-
-    local t = Instance.new("TextLabel", f)
-    t.Size = UDim2.new(1, -70, 0, 20)
-    t.Position = UDim2.new(0, 12, 0, desc and 3 or 7)
-    t.BackgroundTransparency = 1
-    t.Text = title
-    t.TextColor3 = Color3.fromRGB(220, 220, 230)
-    t.TextSize = 13
-    t.Font = Enum.Font.GothamMedium
-    t.TextXAlignment = Enum.TextXAlignment.Left
-
-    if desc then
-        local d = Instance.new("TextLabel", f)
-        d.Size = UDim2.new(1, -70, 0, 14)
-        d.Position = UDim2.new(0, 12, 0, 22)
-        d.BackgroundTransparency = 1
-        d.Text = desc
-        d.TextColor3 = Color3.fromRGB(90, 90, 100)
-        d.TextSize = 10
-        d.Font = Enum.Font.Gotham
-        d.TextXAlignment = Enum.TextXAlignment.Left
-    end
-
-    local bg = Instance.new("Frame", f)
-    bg.Size = UDim2.new(0, 40, 0, 22)
-    bg.Position = UDim2.new(1, -52, 0.5, -11)
-    bg.BackgroundColor3 = Config[key] and Color3.fromRGB(0, 200, 130) or Color3.fromRGB(55, 55, 65)
-    bg.BorderSizePixel = 0
-    Instance.new("UICorner", bg).CornerRadius = UDim.new(1, 0)
-
-    local knob = Instance.new("Frame", bg)
-    knob.Size = UDim2.new(0, 16, 0, 16)
-    knob.Position = Config[key] and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
-    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    knob.BorderSizePixel = 0
-    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
-
-    local btn = Instance.new("TextButton", bg)
-    btn.Size = UDim2.new(1, 0, 1, 0)
-    btn.BackgroundTransparency = 1
-    btn.Text = ""
-
-    btn.MouseButton1Click:Connect(function()
-        Config[key] = not Config[key]
-        local on = Config[key]
-        local tw = TweenInfo.new(0.2, Enum.EasingStyle.Quad)
-        TweenService:Create(bg, tw, {BackgroundColor3 = on and Color3.fromRGB(0, 200, 130) or Color3.fromRGB(55, 55, 65)}):Play()
-        TweenService:Create(knob, tw, {Position = on and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)}):Play()
-        saveConfig()
-        if cb then cb(on) end
-    end)
-end
-
-local function mkButton(page, title, ord, cb)
-    local b = Instance.new("TextButton", page)
-    b.Size = UDim2.new(1, 0, 0, 34)
-    b.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
-    b.BorderSizePixel = 0
-    b.Text = title
-    b.TextColor3 = Color3.fromRGB(200, 200, 210)
-    b.TextSize = 13
-    b.Font = Enum.Font.GothamMedium
-    b.LayoutOrder = ord
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
-    b.MouseButton1Click:Connect(function() if cb then cb() end end)
-end
-
-local function mkSlider(page, title, key, mn, mx, ord, cb)
-    local f = Instance.new("Frame", page)
-    f.Size = UDim2.new(1, 0, 0, 50)
-    f.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
-    f.BorderSizePixel = 0
-    f.LayoutOrder = ord
-    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
-
-    local t = Instance.new("TextLabel", f)
-    t.Size = UDim2.new(1, -60, 0, 20)
-    t.Position = UDim2.new(0, 12, 0, 4)
-    t.BackgroundTransparency = 1
-    t.Text = title
-    t.TextColor3 = Color3.fromRGB(220, 220, 230)
-    t.TextSize = 13
-    t.Font = Enum.Font.GothamMedium
-    t.TextXAlignment = Enum.TextXAlignment.Left
-
-    local vl = Instance.new("TextLabel", f)
-    vl.Size = UDim2.new(0, 50, 0, 20)
-    vl.Position = UDim2.new(1, -58, 0, 4)
-    vl.BackgroundTransparency = 1
-    vl.Text = tostring(Config[key])
-    vl.TextColor3 = Color3.fromRGB(0, 200, 130)
-    vl.TextSize = 12
-    vl.Font = Enum.Font.GothamBold
-    vl.TextXAlignment = Enum.TextXAlignment.Right
-
-    local sbg = Instance.new("Frame", f)
-    sbg.Size = UDim2.new(1, -24, 0, 6)
-    sbg.Position = UDim2.new(0, 12, 0, 34)
-    sbg.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
-    sbg.BorderSizePixel = 0
-    Instance.new("UICorner", sbg).CornerRadius = UDim.new(1, 0)
-
-    local pct = math.clamp((Config[key] - mn) / (mx - mn), 0, 1)
-    local fill = Instance.new("Frame", sbg)
-    fill.Size = UDim2.new(pct, 0, 1, 0)
-    fill.BackgroundColor3 = Color3.fromRGB(0, 200, 130)
-    fill.BorderSizePixel = 0
-    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
-
-    local sBtn = Instance.new("TextButton", f)
-    sBtn.Size = UDim2.new(1, 0, 0, 20)
-    sBtn.Position = UDim2.new(0, 0, 0, 28)
-    sBtn.BackgroundTransparency = 1
-    sBtn.Text = ""
-
-    local sliding = false
-    local function upd(pos)
-        local abs = sbg.AbsolutePosition
-        local sz = sbg.AbsoluteSize
-        local rel = math.clamp((pos.X - abs.X) / sz.X, 0, 1)
-        local val = mn + (mx - mn) * rel
-        if mx <= 10 then val = math.floor(val * 10 + 0.5) / 10 else val = math.floor(val + 0.5) end
-        Config[key] = val
-        vl.Text = tostring(val)
-        fill.Size = UDim2.new(rel, 0, 1, 0)
-        saveConfig()
-        if cb then cb(val) end
-    end
-
-    sBtn.InputBegan:Connect(function(inp)
-        if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
-            sliding = true
-            upd(inp.Position)
-        end
-    end)
-    sBtn.InputEnded:Connect(function(inp)
-        if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then sliding = false end
-    end)
-    UserInputService.InputChanged:Connect(function(inp)
-        if sliding and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then
-            upd(inp.Position)
-        end
-    end)
-end
-
--- ====== POPULATE PAGES ======
-
--- FISHING
-local fp = pages["Fishing"]
-mkSection(fp, "FISHING MODE", 1)
-mkToggle(fp, "Auto Fish", "Automatically cast and reel", "AutoFish", 2, function(on)
-    fishingActive = on
-    if on then task.spawn(fishingLoop) else pcall(function() Events.unequip:FireServer() end) end
-end)
-mkToggle(fp, "Blatant Mode", "2x parallel casts + spam reel", "BlatantMode", 3)
-mkToggle(fp, "Auto Catch", "Extra reel spam for speed", "AutoCatch", 4)
-mkSection(fp, "TIMING", 5)
-mkSlider(fp, "Fish Delay", "FishDelay", 0.1, 5, 6)
-mkSlider(fp, "Catch Delay", "CatchDelay", 0.1, 3, 7)
-
--- SELLING
-local sp = pages["Selling"]
-mkSection(sp, "AUTO SELL", 1)
-mkToggle(sp, "Auto Sell", "Sell non-favorited fish", "AutoSell", 2)
-mkSlider(sp, "Sell Delay (sec)", "SellDelay", 10, 300, 3)
-mkButton(sp, "Sell All Now", 4, simpleSell)
-mkSection(sp, "AUTO FAVORITE", 5)
-mkToggle(sp, "Auto Favorite", "Favorite Mythic/Secret fish", "AutoFavorite", 6)
-mkButton(sp, "Favorite All Now", 7, autoFavoriteByRarity)
-
--- TELEPORT
-local tp = pages["Teleport"]
-mkSection(tp, "LOCATIONS", 1)
-local tpOrd = 2
-for name, _ in pairs(LOCATIONS) do
-    mkButton(tp, name, tpOrd, function() teleportTo(name) end)
-    tpOrd = tpOrd + 1
-end
-
--- MOVEMENT
-local mp = pages["Movement"]
-mkSection(mp, "CHARACTER", 1)
-mkSlider(mp, "Walk Speed", "WalkSpeed", 16, 200, 2)
-mkSlider(mp, "Jump Power", "JumpPower", 50, 300, 3)
-mkToggle(mp, "Infinite Jump", "Jump in mid-air", "InfJump", 4)
-mkToggle(mp, "Fly", "WASD + Space/Shift", "Fly", 5)
-mkToggle(mp, "Noclip", "Walk through walls", "Noclip", 6)
-mkToggle(mp, "Anti Drown", "Auto resurface underwater", "AntiDrown", 7)
-
--- UTILITY
-local up = pages["Utility"]
-mkSection(up, "PERFORMANCE", 1)
-mkToggle(up, "GPU Saver", "Reduce graphics for FPS", "GPUSaver", 2, function(on)
-    if on then enableGPU() else disableGPU() end
-end)
-mkSection(up, "SERVER", 3)
-mkButton(up, "Server Hop", 4, function()
-    pcall(function()
-        local data = HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"))
-        for _, s in pairs(data.data) do
-            if s.playing < s.maxPlayers and s.id ~= game.JobId then
-                game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, s.id)
-                return
-            end
-        end
-    end)
-end)
-mkButton(up, "Rejoin Server", 5, function()
-    pcall(function() game:GetService("TeleportService"):Teleport(game.PlaceId) end)
-end)
-
--- SETTINGS
-local stp = pages["Settings"]
-mkSection(stp, "CONFIG", 1)
-mkButton(stp, "Save Config", 2, saveConfig)
-mkButton(stp, "Load Config", 3, loadConfig)
-mkButton(stp, "Reset Config", 4, function()
-    for k, v in pairs(DefaultConfig) do Config[k] = v end
-    saveConfig()
-end)
-mkSection(stp, "INFO", 5)
-local infoLbl = Instance.new("TextLabel", stp)
-infoLbl.Size = UDim2.new(1, 0, 0, 50)
-infoLbl.BackgroundTransparency = 1
-infoLbl.Text = "Moron Fish It v8.0\nby GasUp ID\nNo Key | No HWID | Free Forever"
-infoLbl.TextColor3 = Color3.fromRGB(100, 100, 110)
-infoLbl.TextSize = 11
-infoLbl.Font = Enum.Font.Gotham
-infoLbl.TextXAlignment = Enum.TextXAlignment.Left
-infoLbl.LayoutOrder = 6
-
--- ====== TAB SWITCHING ======
-local function switchTab(name)
-    currentTab = name
-    for tn, data in pairs(tabBtns) do
-        local active = (tn == name)
-        data.ind.Visible = active
-        data.btn.TextColor3 = active and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(160, 160, 170)
-        data.btn.Font = active and Enum.Font.GothamBold or Enum.Font.Gotham
-    end
-    for pn, pg in pairs(pages) do pg.Visible = (pn == name) end
-end
-
-for tn, data in pairs(tabBtns) do
-    data.btn.MouseButton1Click:Connect(function() switchTab(tn) end)
-end
-switchTab("Fishing")
-
--- ====== FLOATING BUTTON ======
-local floatBtn = Instance.new("TextButton", screenGui)
-floatBtn.Size = UDim2.new(0, 40, 0, 40)
-floatBtn.Position = UDim2.new(0, 10, 0.5, -20)
-floatBtn.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
-floatBtn.BorderSizePixel = 0
-floatBtn.Text = "M"
-floatBtn.TextColor3 = Color3.fromRGB(0, 200, 130)
-floatBtn.TextSize = 18
-floatBtn.Font = Enum.Font.GothamBold
-floatBtn.Visible = false
-Instance.new("UICorner", floatBtn).CornerRadius = UDim.new(0, 10)
-
-local fbDrag, fbDS, fbSP
-floatBtn.InputBegan:Connect(function(inp)
-    if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
-        fbDrag = true
-        fbDS = inp.Position
-        fbSP = floatBtn.Position
-    end
-end)
-floatBtn.InputEnded:Connect(function(inp)
-    if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
-        if fbDrag then
-            local d = inp.Position - fbDS
-            if math.abs(d.X) < 5 and math.abs(d.Y) < 5 then
-                main.Visible = true
-                floatBtn.Visible = false
-            end
-        end
-        fbDrag = false
-    end
-end)
-UserInputService.InputChanged:Connect(function(inp)
-    if fbDrag and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then
-        local d = inp.Position - fbDS
-        floatBtn.Position = UDim2.new(fbSP.X.Scale, fbSP.X.Offset + d.X, fbSP.Y.Scale, fbSP.Y.Offset + d.Y)
-    end
-end)
-
-closeBtn.MouseButton1Click:Connect(function()
-    main.Visible = false
-    floatBtn.Visible = true
-end)
-
-UserInputService.InputBegan:Connect(function(inp, gpe)
-    if gpe then return end
-    if inp.KeyCode == Enum.KeyCode.RightShift then
-        main.Visible = not main.Visible
-        floatBtn.Visible = not main.Visible
-    end
-end)
-
 -- ====== DONE ======
-print("[Moron Fish It] v8.0 Loaded - GasUp ID")
-print("[Moron Fish It] Events: " .. (eventsLoaded and "OK" or "FAILED"))
+print("[Moron Fish It] v8.1 Loaded - GasUp ID")
+print("[Moron Fish It] Events: " .. eventsStatus)
